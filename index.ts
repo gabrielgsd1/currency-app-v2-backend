@@ -135,6 +135,15 @@ async function getConversionsByUserId(id:string)
   return conversions
 }
 
+async function getAvailableCurrencies()
+:Promise<Currency[]>{
+  let currencies:Currency[] = []
+  await usePrisma(async () => {
+    currencies = await prisma.currency.findMany()
+  })
+  return currencies
+}
+
 app.post('/registerUser', async (req,res) => {
   const data:User = req.body
   try{
@@ -154,6 +163,11 @@ app.post('/getConversions', async (req,res) => {
   } catch(e){
     res.json(e)
   }
+})
+
+app.get('/getCurrencies', async (req,res) => {
+  const currencies = await getAvailableCurrencies()
+  res.json(currencies)
 })
 
 app.post('/login', async(req,res) => {
@@ -229,4 +243,4 @@ app.post('/convert', async (req, res) => {
 //   res.json(resp)
 // })
 
-app.listen(process.env.PORT || 3000)
+app.listen(process.env.PORT || 3001)
