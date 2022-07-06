@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient, Prisma, Conversion, Currency, User} from "@prisma/client";
 import { AxiosInstance } from "axios";
 import { Application } from "express";
 import * as bcrypt from 'bcrypt'
@@ -18,11 +18,6 @@ type Login = {
   email: string,
   password: string
 }
-  
-type User = Login & {
-  id: string
-  name: string
-}
 
 type FrontEndUserData = {
   id: string,
@@ -35,13 +30,6 @@ type ErrorMessage = {
   message: string
 }
 
-type Conversion = {
-  from: string,
-  fromCode: string,
-  rate: number,
-  to: string,
-  toCode: string
-}
 
 async function usePrisma(callback:Function){
   await prisma.$connect()
@@ -51,23 +39,26 @@ async function usePrisma(callback:Function){
   await prisma.$disconnect()
 }
 
-async function hashPassword(password: string):Promise<string>{
+async function hashPassword(password: string)
+:Promise<string>{
   const hashedPassword = await bcrypt.hash(password, 1)
   return hashedPassword
 }
 
-async function comparePassword(password: string, hashToCheck: string):Promise<boolean>{
+async function comparePassword(password: string, hashToCheck: string)
+:Promise<boolean>{
   const isPasswordValid = await bcrypt.compare(password,hashToCheck)
   return isPasswordValid
 }
 
-async function registerUser({name, email, password}: User):Promise<FrontEndUserData|ErrorMessage>{
+async function registerUser({name, email, password}: User)
+:Promise<FrontEndUserData|ErrorMessage>{
   const hashedPassword = await hashPassword(password)
 
   const dataToSend:Prisma.UserCreateInput = {
     name,
     email,
-    password: hashedPassword
+    password: hashedPassword,
   }
 
   let createdUser:FrontEndUserData|null = null
@@ -79,7 +70,7 @@ async function registerUser({name, email, password}: User):Promise<FrontEndUserD
     createdUser = {
       id: dbUser.id,
       name: dbUser.name,
-      email: dbUser.email
+      email: dbUser.email,
     }
   })
 
@@ -93,7 +84,8 @@ async function registerUser({name, email, password}: User):Promise<FrontEndUserD
   }
 }
 
-async function checkUser({email, password}:Login):Promise<ErrorMessage|FrontEndUserData>{
+async function checkUser({email, password}:Login)
+:Promise<ErrorMessage|FrontEndUserData>{
   let user:User[] = [];
   await usePrisma(async () => {
     user = await prisma.user.findMany({
@@ -119,27 +111,48 @@ async function checkUser({email, password}:Login):Promise<ErrorMessage|FrontEndU
   }
 }
 
-async function retrieveUser(id:string):Promise<User>{
-  let user:User[] = []; 
-  console.log(user)
+async function createConversion(dataToSend:Prisma.ConversionCreateInput)
+:Promise<Conversion|null>{
+  let createdConversion:Conversion|null = null;
   await usePrisma(async () => {
-    const dbSearch = await prisma.user.findMany({
+    createdConversion = await prisma.conversion.create({
+      data: dataToSend
+    })
+  })
+  return createdConversion
+}
+
+async function getConversionsByUserId(id:string)
+:Promise<Conversion[]>{
+  let conversions:Conversion[] = []
+  await usePrisma(async () => {
+    conversions = await prisma.conversion.findMany({
       where: {
-        id: id
+        userId: id
       }
     })
-    user = dbSearch
   })
-  return user[0]
+  return conversions
 }
 
 app.post('/registerUser', async (req,res) => {
   const data:User = req.body
-  try {
+  try{
     const userCreation = await registerUser(data)
     res.json(userCreation)
   } catch(e){
-    res.status(400).json(e)
+    res.json(e)
+  }
+  
+})
+
+app.post('/getConversions', async (req,res) => {
+  const {id} = req.body
+  try{
+    const conversions = await getConversionsByUserId(id)
+    res.json(conversions)
+  } catch(e){
+    res.json(e)
   }
 })
 
@@ -163,20 +176,21 @@ app.post('/convert', async (req, res) => {
     const response = await axios.get(`https://api.getgeoapi.com/v2/currency/convert?api_key=${process.env.API_KEY}&from=${from}&to=${to}&amount=1&format=json`)
     const data = response.data
     const toCoinCode = Object.keys(data.rates)[0]
-    const conversionObj:Conversion = {
-      from: data.base_currency_code,
-      fromCode: data.base_currency_name,
-      rate: data.rates[toCoinCode].rate,
-      to: data.rates[toCoinCode].currency_name,
-      toCode: toCoinCode
+    const conversionObj:Prisma.ConversionCreateInput = {
+      from_code: data.base_currency_code,
+      rate: Number(data.rates[toCoinCode].rate),
+      to_code: toCoinCode,
+      user: {
+        connect: {
+          id
+        }
+      }
     }
-    const userToUpdate = await retrieveUser(id)
-    res.json(conversionObj)
+    const createdConversion = await createConversion(conversionObj)
+    
+    res.json(createdConversion)
   } catch(e){
-    res.status(400).json({
-      error: true,
-      message: e
-    })
+    res.json(e)
   }
 }) 
 

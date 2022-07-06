@@ -50,7 +50,7 @@ async function registerUser({ name, email, password }) {
     const dataToSend = {
         name,
         email,
-        password: hashedPassword
+        password: hashedPassword,
     };
     let createdUser = null;
     await usePrisma(async () => {
@@ -60,7 +60,7 @@ async function registerUser({ name, email, password }) {
         createdUser = {
             id: dbUser.id,
             name: dbUser.name,
-            email: dbUser.email
+            email: dbUser.email,
         };
     });
     if (createdUser != null) {
@@ -97,18 +97,25 @@ async function checkUser({ email, password }) {
         };
     }
 }
-async function retrieveUser(id) {
-    let user = [];
-    console.log(user);
+async function createConversion(dataToSend) {
+    let createdConversion = null;
     await usePrisma(async () => {
-        const dbSearch = await prisma.user.findMany({
+        createdConversion = await prisma.conversion.create({
+            data: dataToSend
+        });
+    });
+    return createdConversion;
+}
+async function getConversionsByUserId(id) {
+    let conversions = [];
+    await usePrisma(async () => {
+        conversions = await prisma.conversion.findMany({
             where: {
-                id: id
+                userId: id
             }
         });
-        user = dbSearch;
     });
-    return user[0];
+    return conversions;
 }
 app.post('/registerUser', async (req, res) => {
     const data = req.body;
@@ -117,7 +124,17 @@ app.post('/registerUser', async (req, res) => {
         res.json(userCreation);
     }
     catch (e) {
-        res.status(400).json(e);
+        res.json(e);
+    }
+});
+app.post('/getConversions', async (req, res) => {
+    const { id } = req.body;
+    try {
+        const conversions = await getConversionsByUserId(id);
+        res.json(conversions);
+    }
+    catch (e) {
+        res.json(e);
     }
 });
 app.post('/login', async (req, res) => {
@@ -138,20 +155,20 @@ app.post('/convert', async (req, res) => {
         const data = response.data;
         const toCoinCode = Object.keys(data.rates)[0];
         const conversionObj = {
-            from: data.base_currency_code,
-            fromCode: data.base_currency_name,
-            rate: data.rates[toCoinCode].rate,
-            to: data.rates[toCoinCode].currency_name,
-            toCode: toCoinCode
+            from_code: data.base_currency_code,
+            rate: Number(data.rates[toCoinCode].rate),
+            to_code: toCoinCode,
+            user: {
+                connect: {
+                    id
+                }
+            }
         };
-        const userToUpdate = await retrieveUser(id);
-        res.json(conversionObj);
+        const createdConversion = await createConversion(conversionObj);
+        res.json(createdConversion);
     }
     catch (e) {
-        res.status(400).json({
-            error: true,
-            message: e
-        });
+        res.json(e);
     }
 });
 /// Get all the available coins in the API 
