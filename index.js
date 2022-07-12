@@ -32,11 +32,6 @@ const axios = require('axios').default;
 const prisma = new client_1.PrismaClient();
 app.use(express.json());
 app.use(cors());
-async function usePrisma(callback) {
-    await prisma.$connect();
-    await callback();
-    await prisma.$disconnect();
-}
 async function hashPassword(password) {
     const hashedPassword = await bcrypt.hash(password, 1);
     return hashedPassword;
@@ -52,16 +47,8 @@ async function registerUser({ name, email, password }) {
         email,
         password: hashedPassword,
     };
-    let createdUser = null;
-    await usePrisma(async () => {
-        const dbUser = await prisma.user.create({
-            data: dataToSend
-        });
-        createdUser = {
-            id: dbUser.id,
-            name: dbUser.name,
-            email: dbUser.email,
-        };
+    let createdUser = await prisma.user.create({
+        data: dataToSend
     });
     if (createdUser != null) {
         return createdUser;
@@ -74,20 +61,22 @@ async function registerUser({ name, email, password }) {
     }
 }
 async function checkUser({ email, password }) {
-    let user = [];
-    await usePrisma(async () => {
-        user = await prisma.user.findMany({
-            where: {
-                email
-            }
-        });
+    let user = await prisma.user.findUnique({
+        where: {
+            email
+        }
     });
-    const isLoginValid = await comparePassword(password, user[0].password);
+    if (user == null)
+        return {
+            error: true,
+            message: 'Wrong Credentials!'
+        };
+    const isLoginValid = await comparePassword(password, user.password);
     if (isLoginValid) {
         return {
-            id: user[0].id,
-            name: user[0].name,
-            email: user[0].email
+            id: user.id,
+            name: user.name,
+            email: user.email
         };
     }
     else {
@@ -98,31 +87,42 @@ async function checkUser({ email, password }) {
     }
 }
 async function createConversion(dataToSend) {
-    let createdConversion = null;
-    await usePrisma(async () => {
-        createdConversion = await prisma.conversion.create({
-            data: dataToSend
-        });
+    let createdConversion = await prisma.conversion.create({
+        data: dataToSend
     });
     return createdConversion;
 }
 async function getConversionsByUserId(id) {
-    let conversions = [];
-    await usePrisma(async () => {
-        conversions = await prisma.conversion.findMany({
-            where: {
-                userId: id
-            }
-        });
+    let conversions = await prisma.conversion.findMany({
+        where: {
+            userId: id
+        },
+        orderBy: {
+            date: 'desc'
+        }
     });
     return conversions;
 }
 async function getAvailableCurrencies() {
-    let currencies = [];
-    await usePrisma(async () => {
-        currencies = await prisma.currency.findMany();
-    });
+    let currencies = await prisma.currency.findMany();
     return currencies;
+}
+async function deleteConversion(conversionId) {
+    try {
+        let deletion = await prisma.conversion.delete({
+            where: {
+                id: conversionId
+            }
+        });
+        let allConversions = await prisma.conversion.findMany({
+            where: {
+                userId: deletion.userId
+            }
+        });
+        return allConversions;
+    }
+    catch (e) {
+    }
 }
 app.post('/registerUser', async (req, res) => {
     const data = req.body;
@@ -154,6 +154,7 @@ app.post('/login', async (req, res) => {
     res.json(result);
 });
 app.post('/convert', async (req, res) => {
+    console.log('req recebida');
     const { from, to, id } = req.body;
     if (typeof from == null || typeof to == null) {
         return res.status(400).json({
@@ -162,9 +163,11 @@ app.post('/convert', async (req, res) => {
         });
     }
     try {
+        console.log(from, to);
         const response = await axios.get(`https://api.getgeoapi.com/v2/currency/convert?api_key=${process.env.API_KEY}&from=${from}&to=${to}&amount=1&format=json`);
         const data = response.data;
         const toCoinCode = Object.keys(data.rates)[0];
+        console.log(data);
         const conversionObj = {
             from_code: data.base_currency_code,
             rate: Number(data.rates[toCoinCode].rate),
@@ -179,8 +182,15 @@ app.post('/convert', async (req, res) => {
         res.json(createdConversion);
     }
     catch (e) {
-        res.json(e);
+        res.json({
+            error: e
+        });
     }
+});
+app.delete('/deleteConversion', async (req, res) => {
+    const { id } = req.body;
+    const remainingConversions = await deleteConversion(id);
+    res.json(remainingConversions);
 });
 /// Get all the available coins in the API 
 // type Coin = {
@@ -214,4 +224,11 @@ app.post('/convert', async (req, res) => {
 //   })
 //   res.json(resp)
 // })
-app.listen(process.env.PORT || 3001);
+app.listen(process.env.PORT || 3001, async () => {
+    try {
+        await prisma.$connect();
+    }
+    catch (e) {
+        return;
+    }
+});

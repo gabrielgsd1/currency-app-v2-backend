@@ -2,6 +2,7 @@ import { PrismaClient, Prisma, Conversion, Currency, User} from "@prisma/client"
 import { AxiosInstance } from "axios";
 import { Application } from "express";
 import * as bcrypt from 'bcrypt'
+import {default as dayjs} from 'dayjs'
 
 const express = require('express')
 const cors = require('cors')
@@ -30,15 +31,6 @@ type ErrorMessage = {
   message: string
 }
 
-
-async function usePrisma(callback:Function){
-  await prisma.$connect()
-
-  await callback()
-
-  await prisma.$disconnect()
-}
-
 async function hashPassword(password: string)
 :Promise<string>{
   const hashedPassword = await bcrypt.hash(password, 1)
@@ -61,18 +53,9 @@ async function registerUser({name, email, password}: User)
     password: hashedPassword,
   }
 
-  let createdUser:FrontEndUserData|null = null
-
-  await usePrisma(async () => {
-    const dbUser = await prisma.user.create({
+  let createdUser:FrontEndUserData = await prisma.user.create({
       data: dataToSend
     })
-    createdUser = {
-      id: dbUser.id,
-      name: dbUser.name,
-      email: dbUser.email,
-    }
-  })
 
   if(createdUser != null){
     return createdUser
@@ -86,22 +69,21 @@ async function registerUser({name, email, password}: User)
 
 async function checkUser({email, password}:Login)
 :Promise<ErrorMessage|FrontEndUserData>{
-  let user:User[] = [];
-  await usePrisma(async () => {
-    user = await prisma.user.findMany({
+  let user:User|null =  await prisma.user.findUnique({
       where: {
         email
       }
     })
-  })
-
-  const isLoginValid = await comparePassword(password, user[0].password)
-
+  if(user == null) return {
+    error: true,
+    message: 'Wrong Credentials!'
+  }
+  const isLoginValid = await comparePassword(password, user.password)
   if(isLoginValid){
     return {
-      id: user[0].id,
-      name: user[0].name,
-      email: user[0].email
+      id: user.id,
+      name: user.name,
+      email: user.email
     }
   } else {
     return {
@@ -113,35 +95,49 @@ async function checkUser({email, password}:Login)
 
 async function createConversion(dataToSend:Prisma.ConversionCreateInput)
 :Promise<Conversion|null>{
-  let createdConversion:Conversion|null = null;
-  await usePrisma(async () => {
-    createdConversion = await prisma.conversion.create({
+  let createdConversion:Conversion = await prisma.conversion.create({
       data: dataToSend
     })
-  })
   return createdConversion
 }
 
 async function getConversionsByUserId(id:string)
 :Promise<Conversion[]>{
-  let conversions:Conversion[] = []
-  await usePrisma(async () => {
-    conversions = await prisma.conversion.findMany({
+  let conversions:Conversion[] = await prisma.conversion.findMany({
       where: {
         userId: id
+      },
+      orderBy: {
+        date: 'desc'
       }
     })
-  })
   return conversions
 }
 
 async function getAvailableCurrencies()
 :Promise<Currency[]>{
-  let currencies:Currency[] = []
-  await usePrisma(async () => {
-    currencies = await prisma.currency.findMany()
-  })
+  let currencies:Currency[] = await prisma.currency.findMany()
   return currencies
+}
+
+async function deleteConversion(conversionId:string){
+  try{
+    let deletion:Conversion = await prisma.conversion.delete({
+      where: {
+        id: conversionId
+      }
+    })
+
+    let allConversions = await prisma.conversion.findMany({
+      where: { 
+        userId: deletion.userId
+      }
+    })
+
+    return allConversions
+  } catch(e) {
+
+  }
 }
 
 app.post('/registerUser', async (req,res) => {
@@ -201,12 +197,19 @@ app.post('/convert', async (req, res) => {
       }
     }
     const createdConversion = await createConversion(conversionObj)
-    
     res.json(createdConversion)
   } catch(e){
-    res.json(e)
+    res.json({  
+      error: e
+    } )
   }
 }) 
+
+app.delete('/deleteConversion', async(req,res) => {
+  const {id} = req.body
+  const remainingConversions = await deleteConversion(id as string)
+  res.json(remainingConversions)
+})
 
 /// Get all the available coins in the API 
 
@@ -243,4 +246,10 @@ app.post('/convert', async (req, res) => {
 //   res.json(resp)
 // })
 
-app.listen(process.env.PORT || 3001)
+app.listen(process.env.PORT || 3001, async () => {
+  try{
+    await prisma.$connect()
+  } catch(e){
+    return
+  }
+})
