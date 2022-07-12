@@ -2,7 +2,6 @@ import { PrismaClient, Prisma, Conversion, Currency, User} from "@prisma/client"
 import { AxiosInstance } from "axios";
 import { Application } from "express";
 import * as bcrypt from 'bcrypt'
-import {default as dayjs} from 'dayjs'
 
 const express = require('express')
 const cors = require('cors')
