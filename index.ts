@@ -25,9 +25,18 @@ type FrontEndUserData = {
   email: string
 }
 
+type FrontEndConversion = {
+  created: Conversion,
+  all: Conversion[]
+}
+
 type ErrorMessage = {
   error: boolean,
-  message: string
+  message: string | object
+}
+
+type UserWithConversions = FrontEndUserData & {
+  madeConversions: Conversion[]
 }
 
 async function hashPassword(password: string)
@@ -67,23 +76,32 @@ async function registerUser({name, email, password}: User)
 }
 
 async function checkUser({email, password}:Login)
-:Promise<ErrorMessage|FrontEndUserData>{
+:Promise<ErrorMessage|UserWithConversions>{
   let user:User|null =  await prisma.user.findUnique({
       where: {
         email
       }
     })
-  if(user == null) return {
-    error: true,
-    message: 'Wrong Credentials!'
+  let conversions:Conversion[] = []
+  if(user == null) {
+    return {
+      error: true,
+      message: 'Wrong Credentials!'
+    }
+  } else {
+    const madeConversions = await prisma.conversion.findMany({
+      where: {
+        userId: user.id
+      }
+    })
+    conversions = madeConversions
   }
+  const frontEndData:UserWithConversions = Object.assign(user, {
+    madeConversions: conversions
+  })
   const isLoginValid = await comparePassword(password, user.password)
   if(isLoginValid){
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email
-    }
+    return frontEndData
   } else {
     return {
       error: true,
@@ -93,11 +111,15 @@ async function checkUser({email, password}:Login)
 }
 
 async function createConversion(dataToSend:Prisma.ConversionCreateInput)
-:Promise<Conversion|null>{
+:Promise<FrontEndConversion|null>{
   let createdConversion:Conversion = await prisma.conversion.create({
       data: dataToSend
     })
-  return createdConversion
+  let allConversions:Conversion[] = await getConversionsByUserId(createdConversion.userId)
+  return Object.assign({
+    created: createdConversion, 
+    all: allConversions
+  })
 }
 
 async function getConversionsByUserId(id:string)
@@ -119,7 +141,8 @@ async function getAvailableCurrencies()
   return currencies
 }
 
-async function deleteConversion(conversionId:string){
+async function deleteConversion(conversionId:string)
+:Promise<Conversion[] | ErrorMessage>{
   try{
     let deletion:Conversion = await prisma.conversion.delete({
       where: {
@@ -134,8 +157,11 @@ async function deleteConversion(conversionId:string){
     })
 
     return allConversions
-  } catch(e) {
-
+  } catch(e: any) {
+    return {
+      error: true,
+      message: e
+    }
   }
 }
 
@@ -195,8 +221,8 @@ app.post('/convert', async (req, res) => {
         }
       }
     }
-    const createdConversion = await createConversion(conversionObj)
-    res.json(createdConversion)
+    const conversionData = await createConversion(conversionObj)
+    res.json(conversionData)
   } catch(e){
     res.json({  
       error: e
