@@ -138,7 +138,7 @@ async function getConversionsByUserId(id:string)
 async function getAvailableCurrencies()
 :Promise<Currency[]>{
   let currencies:Currency[] = await prisma.currency.findMany()
-  return currencies
+  return currencies 
 }
 
 async function deleteConversion(conversionId:string)

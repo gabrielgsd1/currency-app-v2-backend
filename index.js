@@ -135,6 +135,10 @@ async function deleteConversion(conversionId) {
         return allConversions;
     }
     catch (e) {
+        return {
+            error: true,
+            message: e
+        };
     }
 }
 app.post('/registerUser', async (req, res) => {
