@@ -74,11 +74,7 @@ async function checkUser({ email, password }) {
         };
     }
     else {
-        const madeConversions = await prisma.conversion.findMany({
-            where: {
-                userId: user.id
-            }
-        });
+        const madeConversions = await getConversionsByUserId(user.id);
         conversions = madeConversions;
     }
     const frontEndData = Object.assign(user, {
